@@ -62,6 +62,8 @@ jobs:
           CONTAINER_ID: ${{ vars.SCW_CONTAINER_ID }}
           IMAGE: ${{ env.REGISTRY }}/ose-mcp:${{ github.sha }}
         run: |
-          # NB: `update` uses image=  (registry-image= is only valid on `create`)
+          # `update image=… --wait` sets the new image, triggers a redeploy, and waits
+          # for the container to be ready. (No separate `deploy` step: `update` already
+          # redeploys, and `container deploy` doesn't accept --wait.)
+          # Note: `update` uses image= (registry-image= is only valid on `create`).
           scw container container update "$CONTAINER_ID" image="$IMAGE" --wait
-          scw container container deploy "$CONTAINER_ID" --wait
