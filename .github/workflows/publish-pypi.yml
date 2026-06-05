@@ -45,11 +45,10 @@ jobs:
           uvx opencrane pack --name ose-knowledge-mcp --version "$VERSION" --output .opencrane/pack
 
       - name: Build wheel + sdist
-        # opencrane pack scaffolds the source tree; `build` produces the
-        # dist/ artefacts that pypi-publish consumes.
-        run: |
-          uv pip install --system build
-          python -m build .opencrane/pack --outdir .opencrane/pack/dist
+        # opencrane pack scaffolds the source tree; `uv build` produces the dist/
+        # artefacts. (Don't `uv pip install --system build` — the runner's system
+        # Python is externally managed (PEP 668) and refuses system-wide installs.)
+        run: uv build .opencrane/pack --out-dir .opencrane/pack/dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
