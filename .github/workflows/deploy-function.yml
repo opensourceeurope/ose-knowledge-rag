@@ -1,0 +1,89 @@
+name: Deploy chat function to Scaleway
+
+# Builds function/ (persona + pagemap + tsc in the runner), ships a minimal image, and
+# rolls it out to a Scaleway serverless container. Reuses the same Scaleway creds as the
+# MCP deploy.
+#
+# One-time setup by the maintainer:
+#   - create a serverless container for the function (port 8080, e.g. memory 512, min-scale 0)
+#     in the `opensourceeurope` namespace; capture its ID.
+#   - set its runtime env ON that container: MISTRAL_API_KEY (secret), OSE_MCP_URL
+#     (https://<mcp-endpoint>/mcp), ALLOWED_ORIGINS (the chat site origin), optionally
+#     MISTRAL_MODEL / MAX_TOOL_ROUNDS.
+# Extra repo variable: SCW_FUNCTION_CONTAINER_ID (that container's ID).
+# Its public URL becomes the CHAT_FUNCTION_URL variable used by deploy-chat.yml.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-function
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    env:
+      SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+      SCW_DEFAULT_PROJECT_ID: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
+      SCW_DEFAULT_ORGANIZATION_ID: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
+      SCW_DEFAULT_REGION: ${{ vars.SCW_REGION }}
+      REGISTRY: rg.${{ vars.SCW_REGION }}.scw.cloud/${{ vars.SCW_REGISTRY_NAMESPACE }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The ubuntu-24.04 runner ships Node 20 — no setup-node needed (and it keeps this
+      # artifact-publishing job clear of the cache-poisoning class).
+      - name: Build the function (persona + pagemap + tsc), then prune to prod deps
+        working-directory: function
+        run: |
+          node --version
+          npm ci
+          npm run build
+          npm prune --omit=dev
+
+      - name: Install Scaleway CLI
+        run: |
+          curl -fsSL https://github.com/scaleway/scaleway-cli/releases/download/v2.56.1/scaleway-cli_2.56.1_linux_amd64 \
+            -o /usr/local/bin/scw
+          chmod +x /usr/local/bin/scw
+          scw version
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to Scaleway Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: rg.${{ vars.SCW_REGION }}.scw.cloud
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: function
+          file: function/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/ose-chat-function:latest
+            ${{ env.REGISTRY }}/ose-chat-function:${{ github.sha }}
+
+      - name: Deploy new image to the serverless container
+        if: ${{ vars.SCW_FUNCTION_CONTAINER_ID != '' }}
+        env:
+          CONTAINER_ID: ${{ vars.SCW_FUNCTION_CONTAINER_ID }}
+          IMAGE: ${{ env.REGISTRY }}/ose-chat-function:${{ github.sha }}
+        run: scw container container update "$CONTAINER_ID" image="$IMAGE" --wait
+
+      - name: Container not created yet (first run)
+        if: ${{ vars.SCW_FUNCTION_CONTAINER_ID == '' }}
+        run: |
+          echo "::notice::Image pushed to the registry. SCW_FUNCTION_CONTAINER_ID is not set yet —"
+          echo "::notice::create the serverless container referencing this image, set the"
+          echo "::notice::SCW_FUNCTION_CONTAINER_ID variable, then re-run this workflow to deploy."
