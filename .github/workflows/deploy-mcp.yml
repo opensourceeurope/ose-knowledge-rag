@@ -26,7 +26,9 @@ jobs:
       SCW_DEFAULT_REGION: ${{ vars.SCW_REGION }}
       REGISTRY: rg.${{ vars.SCW_REGION }}.scw.cloud/${{ vars.SCW_REGISTRY_NAMESPACE }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install Scaleway CLI
         run: |
@@ -55,8 +57,9 @@ jobs:
             ${{ env.REGISTRY }}/ose-mcp:${{ github.sha }}
 
       - name: Deploy new image to the serverless container
+        env:
+          CONTAINER_ID: ${{ vars.SCW_CONTAINER_ID }}
+          IMAGE: ${{ env.REGISTRY }}/ose-mcp:${{ github.sha }}
         run: |
-          scw container container update "${{ vars.SCW_CONTAINER_ID }}" \
-            registry-image="${{ env.REGISTRY }}/ose-mcp:${{ github.sha }}" \
-            --wait
-          scw container container deploy "${{ vars.SCW_CONTAINER_ID }}" --wait
+          scw container container update "$CONTAINER_ID" registry-image="$IMAGE" --wait
+          scw container container deploy "$CONTAINER_ID" --wait
