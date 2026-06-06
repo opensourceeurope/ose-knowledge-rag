@@ -147,3 +147,13 @@ jobs:
       SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
       SCW_DEFAULT_PROJECT_ID: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
       SCW_DEFAULT_ORGANIZATION_ID: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+
+  # Upload the static chat page after the function is deployed (renders config.js from
+  # the CHAT_FUNCTION_URL variable). Completes the chat end-to-end on every release.
+  deploy-chat:
+    needs: deploy-function
+    uses: ./.github/workflows/deploy-chat.yml
+    secrets:
+      SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+      SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}

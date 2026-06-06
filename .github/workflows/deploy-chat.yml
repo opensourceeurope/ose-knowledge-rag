@@ -1,6 +1,10 @@
 name: Deploy chat website (Scaleway Object Storage)
 
 on:
+  workflow_call:
+    secrets:
+      SCW_ACCESS_KEY: { required: true }
+      SCW_SECRET_KEY: { required: true }
   workflow_dispatch:
 
 # Reuses the Scaleway credentials already configured for the MCP deploy.

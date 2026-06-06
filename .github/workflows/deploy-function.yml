@@ -20,6 +20,7 @@ on:
       SCW_SECRET_KEY: { required: true }
       SCW_DEFAULT_PROJECT_ID: { required: true }
       SCW_DEFAULT_ORGANIZATION_ID: { required: true }
+      MISTRAL_API_KEY: { required: true }
   workflow_dispatch: {}  # and runnable on its own for function-only redeploys
 
 permissions:
@@ -80,12 +81,33 @@ jobs:
             ${{ env.REGISTRY }}/ose-chat-function:latest
             ${{ env.REGISTRY }}/ose-chat-function:${{ github.sha }}
 
-      - name: Deploy new image to the serverless container
+      - name: Deploy + configure the function container
         if: ${{ vars.SCW_FUNCTION_CONTAINER_ID != '' }}
         env:
           CONTAINER_ID: ${{ vars.SCW_FUNCTION_CONTAINER_ID }}
+          MCP_CONTAINER_ID: ${{ vars.SCW_CONTAINER_ID }}
+          BUCKET: ${{ vars.CHAT_S3_BUCKET }}
+          REGION: ${{ vars.SCW_REGION }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          MISTRAL_MODEL: ${{ vars.MISTRAL_MODEL }}
           IMAGE: ${{ env.REGISTRY }}/ose-chat-function:${{ github.sha }}
-        run: scw container container update "$CONTAINER_ID" image="$IMAGE" --wait
+        run: |
+          # Derive the function's runtime env (no manual config):
+          #  - OSE_MCP_URL from the MCP container's public endpoint
+          #  - ALLOWED_ORIGINS from the static-site bucket's website URL
+          MCP_DOMAIN=$(scw container container get "$MCP_CONTAINER_ID" region="$REGION" -o json \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["domain_name"])')
+          OSE_MCP_URL="https://$MCP_DOMAIN/mcp"
+          ALLOWED="https://$BUCKET.s3-website.$REGION.scw.cloud"
+          MODEL="${MISTRAL_MODEL:-mistral-small-latest}"
+          # Set image + env + secret, then redeploy and wait for ready.
+          scw container container update "$CONTAINER_ID" region="$REGION" image="$IMAGE" \
+            environment-variables.OSE_MCP_URL="$OSE_MCP_URL" \
+            environment-variables.ALLOWED_ORIGINS="$ALLOWED" \
+            environment-variables.MISTRAL_MODEL="$MODEL" \
+            secret-environment-variables.0.key=MISTRAL_API_KEY \
+            secret-environment-variables.0.value="$MISTRAL_API_KEY" \
+            --wait
 
       - name: Container not created yet (first run)
         if: ${{ vars.SCW_FUNCTION_CONTAINER_ID == '' }}
